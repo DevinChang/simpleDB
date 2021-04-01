@@ -35,14 +35,42 @@ BufferPoolManager::~BufferPoolManager() {
 }
 
 Page *BufferPoolManager::FetchPageImpl(page_id_t page_id) {
-  // 1.     Search the page table for the requested page (P).
-  // 1.1    If P exists, pin it and return it immediately.
-  // 1.2    If P does not exist, find a replacement page (R) from either the free list or the replacer.
-  //        Note that pages are always found from the free list first.
-  // 2.     If R is dirty, write it back to the disk.
-  // 3.     Delete R from the page table and insert P.
-  // 4.     Update P's metadata, read in the page content from disk, and then return a pointer to P.
-  return nullptr;
+    // 1.     Search the page table for the requested page (P).
+    // 1.1    If P exists, pin it and return it immediately.
+    // 1.2    If P does not exist, find a replacement page (R) from either the free list or the replacer.
+    Page *p = nullptr;
+    frame_id_t frameId;
+    if (page_table_.count(page_id)) {
+      frameId = page_table_[page_id];
+      p = pages_ + frameId;
+      replacer_->Pin(frameId);
+      p->pin_count_++;
+      return p;
+    }
+    if (free_list_.empty()) {
+      frameId = free_list_.back();
+      free_list_.pop_back();
+    } else {
+      auto isExit = replacer_->Victim(&frameId);
+      if (!isExit) return nullptr;
+    }
+    p = pages_ + frameId;
+    //        Note that pages are always found from the free list first.
+    // 2.     If R is dirty, write it back to the disk.
+    if (p->IsDirty()) {
+      disk_manager_->WritePage(p->GetPageId(), p->GetData());
+      p->is_dirty_ = false;
+    }
+    p->pin_count_ = 0;
+    // 3.     Delete R from the page table and insert P.
+    page_table_.erase(p->GetPageId());
+    page_table_[page_id] = frameId;
+    // 4.     Update P's metadata, read in the page content from disk, and then return a pointer to P.
+    p->page_id_ = page_id;
+    p->ResetMemory();
+    disk_manager_->ReadPage(page_id, p->GetData());
+    p->pin_count_++;
+    return p;
 }
 
 bool BufferPoolManager::UnpinPageImpl(page_id_t page_id, bool is_dirty) { return false; }
