@@ -82,11 +82,26 @@ bool BufferPoolManager::FlushPageImpl(page_id_t page_id) {
 
 Page *BufferPoolManager::NewPageImpl(page_id_t *page_id) {
   // 0.   Make sure you call DiskManager::AllocatePage!
+  Page *p = nullptr;
+  frame_id_t fid;
+  *page_id = disk_manager_->AllocatePage();
   // 1.   If all the pages in the buffer pool are pinned, return nullptr.
   // 2.   Pick a victim page P from either the free list or the replacer. Always pick from the free list first.
+  if (free_list_.size()) {
+    fid = free_list_.front();
+    free_list_.pop_front();
+  } else if (!replacer_->Victim(&fid)) {
+      return nullptr;
+  }
+  p = &pages_[fid];
+  page_table_.erase(p->GetPageId());
   // 3.   Update P's metadata, zero out memory and add P to the page table.
+  p->page_id_ = *page_id;
+  p->pin_count_++;
+  p->is_dirty_ = true;
   // 4.   Set the page ID output parameter. Return a pointer to P.
-  return nullptr;
+  page_table_[*page_id] = fid;
+  return p;
 }
 
 bool BufferPoolManager::DeletePageImpl(page_id_t page_id) {
