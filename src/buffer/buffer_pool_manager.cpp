@@ -73,11 +73,25 @@ Page *BufferPoolManager::FetchPageImpl(page_id_t page_id) {
     return p;
 }
 
-bool BufferPoolManager::UnpinPageImpl(page_id_t page_id, bool is_dirty) { return false; }
+bool BufferPoolManager::UnpinPageImpl(page_id_t page_id, bool is_dirty) {
+  if (!page_table_.count(page_id)) return false;
+  auto fid = page_table_[page_id];
+  Page *page = &pages_[fid];
+  page->is_dirty_ = is_dirty;
+  if (page->pin_count_ <= 0) return false;
+  page->pin_count_--;
+  return true;
+}
+
 
 bool BufferPoolManager::FlushPageImpl(page_id_t page_id) {
   // Make sure you call DiskManager::WritePage!
-  return false;
+  if (!page_table_.count(page_id)) return false;
+  auto fid = page_table_[page_id];
+  auto page = &pages_[fid];
+  if (page->is_dirty_) return false;
+  disk_manager_->WritePage(page_id, page->GetData());
+  return true;
 }
 
 Page *BufferPoolManager::NewPageImpl(page_id_t *page_id) {
@@ -110,7 +124,14 @@ bool BufferPoolManager::DeletePageImpl(page_id_t page_id) {
   // 1.   If P does not exist, return true.
   // 2.   If P exists, but has a non-zero pin-count, return false. Someone is using the page.
   // 3.   Otherwise, P can be deleted. Remove P from the page table, reset its metadata and return it to the free list.
-  return false;
+  if (!page_table_.count(page_id)) return true;
+  auto fid = page_table_[page_id];
+  Page *page = &pages_[fid];
+  if (page->pin_count_ <= 0) return false;
+  page_table_.erase(fid);
+  page->ResetMemory();
+  free_list_.push_back(fid);
+  return true;
 }
 
 void BufferPoolManager::FlushAllPagesImpl() {
