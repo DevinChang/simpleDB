@@ -37,7 +37,8 @@ BufferPoolManager::~BufferPoolManager() {
 Page *BufferPoolManager::FetchPageImpl(page_id_t page_id) {
     // 1.     Search the page table for the requested page (P).
     // 1.1    If P exists, pin it and return it immediately.
-    // 1.2    If P does not exist, find a replacement page (R) from either the free list or the replacer.
+    // 1.2    If P does not exist, find a replacement page (R) from either the free list or the replacer
+    std::lock_guard<std::mutex> lock(latch_);
     Page *p = nullptr;
     frame_id_t frameId;
     if (page_table_.count(page_id)) {
@@ -73,29 +74,48 @@ Page *BufferPoolManager::FetchPageImpl(page_id_t page_id) {
     return p;
 }
 
+/**
+   * Unpin the target page from the buffer pool.
+   * @param page_id id of page to be unpinned
+   * @param is_dirty true if the page should be marked as dirty, false otherwise
+   * @return false if the page pin count is <= 0 before this call, true otherwise
+   */
 bool BufferPoolManager::UnpinPageImpl(page_id_t page_id, bool is_dirty) {
+  std::lock_guard<std::mutex> lock(latch_);
   if (!page_table_.count(page_id)) return false;
   auto fid = page_table_[page_id];
   Page *page = &pages_[fid];
-  page->is_dirty_ = is_dirty;
   if (page->pin_count_ <= 0) return false;
+  page->is_dirty_ = is_dirty;
+  if (is_dirty) {
+    disk_manager_->WritePage(page_id, page->GetData());
+  }
   page->pin_count_--;
+  if (page->pin_count_ <= 0) {
+    replacer_->Unpin(fid);
+  }
   return true;
 }
 
 
 bool BufferPoolManager::FlushPageImpl(page_id_t page_id) {
   // Make sure you call DiskManager::WritePage!
+  std::lock_guard<std::mutex> lock(latch_);
   if (!page_table_.count(page_id)) return false;
   auto fid = page_table_[page_id];
   auto page = &pages_[fid];
-  if (page->is_dirty_) return false;
-  disk_manager_->WritePage(page_id, page->GetData());
+  if (page->is_dirty_) {
+    disk_manager_->WritePage(page_id, page->GetData());
+    page->is_dirty_ = false;
+    return true;
+  }
+  page_table_.erase(page_id);
   return true;
 }
 
 Page *BufferPoolManager::NewPageImpl(page_id_t *page_id) {
   // 0.   Make sure you call DiskManager::AllocatePage!
+  std::lock_guard<std::mutex> lock(latch_);
   Page *p = nullptr;
   frame_id_t fid;
   *page_id = disk_manager_->AllocatePage();
@@ -124,6 +144,7 @@ bool BufferPoolManager::DeletePageImpl(page_id_t page_id) {
   // 1.   If P does not exist, return true.
   // 2.   If P exists, but has a non-zero pin-count, return false. Someone is using the page.
   // 3.   Otherwise, P can be deleted. Remove P from the page table, reset its metadata and return it to the free list.
+  std::lock_guard<std::mutex> lock(latch_);
   if (!page_table_.count(page_id)) return true;
   auto fid = page_table_[page_id];
   Page *page = &pages_[fid];
@@ -136,6 +157,13 @@ bool BufferPoolManager::DeletePageImpl(page_id_t page_id) {
 
 void BufferPoolManager::FlushAllPagesImpl() {
   // You can do it!
+  std::lock_guard<std::mutex> lock(latch_);
+  for (auto [pid, fid] : page_table_) {
+    auto page = &pages_[fid];
+    if(page->is_dirty_) continue;
+    disk_manager_->WritePage(pid, page->GetData());
+  }
+  page_table_.clear();
 }
 
 }  // namespace bustub
