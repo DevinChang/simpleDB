@@ -48,18 +48,11 @@ class LRUReplacer : public Replacer {
   size_t Size() override;
 
  private:
-  struct Node{
-    int key;
-    Node *left, *right;
-    Node(int _key): key(_key), left(nullptr), right(nullptr) {}
-  }*L, *R;
-  size_t size;
-  size_t capcity;
-  std::unordered_map<frame_id_t, Node*> hash;
-
-  void remove(Node *p);
-  void insert(Node *p);
-
+  typedef std::pair<frame_id_t, frame_id_t> PII;
+  std::unordered_map<frame_id_t, std::list<PII>::iterator> frame_hash_;
+  std::list<PII> frame_list_;
+  size_t capcity_;
+  size_t size_;
   // lock
   std::mutex m_lock;
 };

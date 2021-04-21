@@ -15,68 +15,54 @@
 namespace bustub {
 
 LRUReplacer::LRUReplacer(size_t num_pages) {
-  capcity = num_pages;
-  size = 0;
-  L = new Node(-1);
-  R = new Node(-1);
-  L->right = R;
-  R->left = L;
+  capcity_ = num_pages;
+  size_ = 0;
 }
 
 LRUReplacer::~LRUReplacer() = default;
 
-void LRUReplacer::remove(LRUReplacer::Node *p) {
-  p->right->left = p->left;
-  p->left->right = p->right;
-  size--;
-}
-void LRUReplacer::insert(LRUReplacer::Node *p) {
-  p->right = L->right;
-  p->left = L;
-  L->right->left = p;
-  L->right = p;
-  size++;
-}
 
 
 bool LRUReplacer::Victim(frame_id_t *frame_id) {
   std::lock_guard<std::mutex> guard(m_lock);
-  if(Size() == 0) return false;
-  auto p = R->left;
-  remove(p);
-  hash.erase(p->key);
-  *frame_id = p->key;
+  if(size_ == 0) return false;
+  auto p = frame_list_.back();
+  frame_list_.pop_back();
+  frame_hash_.erase(p.first);
+  *frame_id = p.first;
+  size_--;
   return true;
 }
 
 void LRUReplacer::Pin(frame_id_t frame_id) {
   std::lock_guard<std::mutex> guard(m_lock);
-  if(hash.count(frame_id)) {
-    auto p = hash[frame_id];
-    remove(p);
-    hash.erase(p->key);
-    delete p;
+  if(frame_hash_.count(frame_id)) {
+    auto p_it = frame_hash_[frame_id];
+    frame_list_.erase(p_it);
+    frame_hash_.erase(frame_id);
+    size_--;
   }
 }
 
 void LRUReplacer::Unpin(frame_id_t frame_id) {
   std::lock_guard<std::mutex> guard(m_lock);
-  if(hash.count(frame_id))  {
+  if(frame_hash_.count(frame_id))  {
     // 与get不同的是，这里找到frame_id后不做操作
-  } else {
-    if(hash.size() == capcity) {
-      auto p = R->left;
-      remove(p);
-      hash.erase(p->key);
-      delete p;
-    }
-    auto p = new Node(frame_id);
-    hash[frame_id] = p;
-    insert(p);
+    return;
   }
+  else if(size_ == capcity_) {
+      auto p = frame_list_.back();
+      frame_list_.pop_back();
+      frame_hash_.erase(p.first);
+  }
+  else {
+    size_++;
+  }
+  frame_list_.push_front({frame_id, frame_id});
+  frame_hash_[frame_id] = frame_list_.begin();
 }
 
 size_t LRUReplacer::Size() {
-  return size;
+  return size_;
 }
 }  // namespace bustub
