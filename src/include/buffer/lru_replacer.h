@@ -27,7 +27,6 @@ namespace bustub {
  */
 class LRUReplacer : public Replacer {
  public:
-
   /**
    * Create a new LRUReplacer.
    * @param num_pages the maximum number of pages the LRUReplacer will be required to store
